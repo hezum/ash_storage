@@ -29,6 +29,8 @@ defmodule AshStorage.Calculations.VariantUrls do
         tenant: Map.get(context, :tenant)
       )
 
+    op_opts = [tenant: Map.get(context, :tenant), actor: Map.get(context, :actor)]
+
     {:ok,
      Enum.map(records, fn record ->
        case Map.get(record, attachment_name) do
@@ -41,7 +43,7 @@ defmodule AshStorage.Calculations.VariantUrls do
 
              variant_blob =
                find_variant_blob(source_blob, variant_def) ||
-                 generate_variant(source_blob, variant_def, resource, attachment_def)
+                 generate_variant(source_blob, variant_def, resource, attachment_def, op_opts)
 
              if variant_blob do
                service_mod.url(variant_blob.key, ctx)
@@ -62,8 +64,14 @@ defmodule AshStorage.Calculations.VariantUrls do
     end)
   end
 
-  defp generate_variant(source_blob, variant_def, resource, attachment_def) do
-    case AshStorage.VariantGenerator.generate(source_blob, variant_def, resource, attachment_def) do
+  defp generate_variant(source_blob, variant_def, resource, attachment_def, op_opts) do
+    case AshStorage.VariantGenerator.generate(
+           source_blob,
+           variant_def,
+           resource,
+           attachment_def,
+           op_opts
+         ) do
       {:ok, variant_blob} -> variant_blob
       {:error, _} -> nil
     end

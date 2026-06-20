@@ -11,19 +11,37 @@ defmodule AshStorage.VariantGenerator do
   Downloads the source, runs the transform, uploads the result, and creates a variant blob record.
   Returns `{:ok, variant_blob}` or `{:error, reason}`.
   """
-  def generate(source_blob, variant_def, resource, attachment_def) do
-    {module, opts} = VariantDefinition.normalize(variant_def)
+  def generate(source_blob, variant_def, resource, attachment_def, opts \\ []) do
+    {module, var_opts} = VariantDefinition.normalize(variant_def)
     digest = VariantDefinition.digest(variant_def)
     content_type = source_blob.content_type || "application/octet-stream"
 
     if module.accept?(content_type) do
-      do_generate(source_blob, module, opts, digest, variant_def.name, resource, attachment_def)
+      do_generate(
+        source_blob,
+        module,
+        var_opts,
+        digest,
+        variant_def.name,
+        resource,
+        attachment_def,
+        opts
+      )
     else
       {:error, :not_accepted}
     end
   end
 
-  defp do_generate(source_blob, module, opts, digest, variant_name, resource, attachment_def) do
+  defp do_generate(
+         source_blob,
+         module,
+         opts,
+         digest,
+         variant_name,
+         resource,
+         attachment_def,
+         op_opts
+       ) do
     with {:ok, {service_mod, service_opts}} <- resolve_service(resource, attachment_def),
          {:ok, source_data} <- AshStorage.Operations.download(source_blob),
          {:ok, transform_result, variant_data} <- run_transform(module, opts, source_data) do
@@ -36,7 +54,8 @@ defmodule AshStorage.VariantGenerator do
         resource,
         service_mod,
         service_opts,
-        attachment_def
+        attachment_def,
+        op_opts
       )
     end
   end
@@ -75,7 +94,8 @@ defmodule AshStorage.VariantGenerator do
          resource,
          service_mod,
          service_opts,
-         attachment_def
+         attachment_def,
+         op_opts
        ) do
     key = AshStorage.generate_key()
     checksum = :crypto.hash(:md5, variant_data) |> Base.encode64()
@@ -117,7 +137,14 @@ defmodule AshStorage.VariantGenerator do
         }
         |> Map.merge(extra_blob_attrs)
 
-      Ash.create(blob_resource, blob_attrs, action: :create_variant)
+      Ash.create(
+        blob_resource,
+        blob_attrs,
+        Keyword.merge(
+          Keyword.take(op_opts, [:tenant, :actor, :authorize?, :tracer]),
+          action: :create_variant
+        )
+      )
     end
   end
 
