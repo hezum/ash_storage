@@ -19,6 +19,22 @@ defmodule AshStorage.Test.UppercaseVariant do
   end
 end
 
+defmodule AshStorage.Test.InMemoryUppercaseVariant do
+  @moduledoc false
+  @behaviour AshStorage.Variant
+
+  @impl true
+  def accept?("text/" <> _), do: true
+  def accept?(_), do: false
+
+  # Returns the encoded bytes directly instead of writing to dest_path.
+  @impl true
+  def transform(source_path, _dest_path, _opts) do
+    content = File.read!(source_path)
+    {:ok, %{content_type: "text/plain"}, String.upcase(content)}
+  end
+end
+
 defmodule AshStorage.Test.RejectAllVariant do
   @moduledoc false
   @behaviour AshStorage.Variant
@@ -61,6 +77,7 @@ defmodule AshStorage.Test.VariantPost do
       variant(:uppercase, AshStorage.Test.UppercaseVariant)
       variant(:eager_uppercase, AshStorage.Test.UppercaseVariant, generate: :eager)
       variant(:custom, {AshStorage.Test.UppercaseVariant, suffix: "!!!"}, generate: :eager)
+      variant(:in_memory, AshStorage.Test.InMemoryUppercaseVariant)
     end
 
     has_one_attached :image do

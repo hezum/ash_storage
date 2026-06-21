@@ -31,11 +31,17 @@ defmodule AshStorage.Variant do
   @callback accept?(content_type :: String.t()) :: boolean()
 
   @doc """
-  Transform a file and write the result.
+  Transform a file and return the result.
 
-  Reads the file at `source_path`, applies the transformation, and writes the
-  result to `dest_path`. Returns `{:ok, metadata}` where metadata is a map
-  that can include:
+  Reads the file at `source_path` and applies the transformation. There are two
+  ways to return the result:
+
+  - Write the result to `dest_path` and return `{:ok, metadata}`, or
+  - Return the encoded bytes directly as `{:ok, metadata, binary}` (no file I/O
+    on `dest_path`). Prefer this when the transform already holds the output in
+    memory — it avoids a temp-file round trip.
+
+  `metadata` is a map that can include:
 
   - `:content_type` — the MIME type of the output file
   - `:filename` — override filename for the variant blob
@@ -46,5 +52,5 @@ defmodule AshStorage.Variant do
               source_path :: String.t(),
               dest_path :: String.t(),
               opts :: keyword()
-            ) :: {:ok, map()} | {:error, term()}
+            ) :: {:ok, map()} | {:ok, map(), binary()} | {:error, term()}
 end

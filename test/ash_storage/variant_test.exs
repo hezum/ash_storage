@@ -123,6 +123,24 @@ defmodule AshStorage.VariantTest do
     end
   end
 
+  describe "transforms that return bytes directly" do
+    test "persists the returned binary without writing dest_path" do
+      post = create_post_with_document("hello world")
+
+      # :in_memory returns {:ok, metadata, binary} instead of writing dest_path.
+      post = Ash.load!(post, :document_in_memory_url)
+      assert is_binary(post.document_in_memory_url)
+
+      post = Ash.load!(post, document: [blob: :variants])
+      variant = Enum.find(post.document.blob.variants, &(&1.variant_name == "in_memory"))
+      assert variant != nil
+      assert variant.content_type == "text/plain"
+
+      {:ok, data} = AshStorage.Service.Test.download(variant.key, [])
+      assert data == "HELLO WORLD"
+    end
+  end
+
   describe "failing variants" do
     test "failing transform does not create a variant blob" do
       post =

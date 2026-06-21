@@ -72,9 +72,13 @@ defmodule AshStorage.VariantGenerator do
 
     try do
       case module.transform(source_path, dest_path, opts) do
-        {:ok, metadata} ->
-          variant_data = File.read!(dest_path)
+        # Transform returned the encoded bytes directly — no dest file needed.
+        {:ok, metadata, variant_data} when is_binary(variant_data) ->
           {:ok, metadata, variant_data}
+
+        # Transform wrote the result to dest_path; read it back.
+        {:ok, metadata} ->
+          {:ok, metadata, File.read!(dest_path)}
 
         {:error, reason} ->
           {:error, reason}
