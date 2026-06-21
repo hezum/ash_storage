@@ -82,7 +82,9 @@ defmodule AshStorage.MultitenancyTest do
       blob_resource(AshStorage.MultitenancyTest.TenantBlob)
       attachment_resource(AshStorage.MultitenancyTest.TenantAttachment)
 
-      has_one_attached(:cover_image)
+      has_one_attached :cover_image do
+        variant(:upcased, AshStorage.Test.UppercaseVariant)
+      end
     end
 
     attributes do
@@ -203,6 +205,87 @@ defmodule AshStorage.MultitenancyTest do
 
       post = Ash.load!(post, [cover_image: :blob], tenant: tenant1)
       assert post.cover_image.blob.id == blob.id
+    end
+  end
+
+  describe "on-demand variant generation with tenant" do
+    test "generates the variant blob in the tenant and serves its url", %{tenant1: tenant1} do
+      post =
+        TenantPost
+        |> Ash.Changeset.for_create(:create, %{title: "variant"}, tenant: tenant1)
+        |> Ash.create!()
+
+      {:ok, _attached} =
+        Operations.attach(post, :cover_image, "hello world",
+          filename: "hello.txt",
+          content_type: "text/plain",
+          tenant: tenant1
+        )
+
+      # Loading the variant URL triggers on-demand generation, which creates a
+      # variant blob via the tenant-scoped blob resource. Without threading the
+      # tenant into VariantGenerator the create fails and the URL calc is nil.
+      post = Ash.load!(post, [:cover_image_upcased_url], tenant: tenant1)
+      assert is_binary(post.cover_image_upcased_url)
+
+      post = Ash.load!(post, [cover_image: [blob: :variants]], tenant: tenant1)
+      variant = Enum.find(post.cover_image.blob.variants, &(&1.variant_name == "upcased"))
+      assert variant != nil
+      assert variant.variant_of_blob_id == post.cover_image.blob.id
+      assert {:ok, "HELLO WORLD"} = AshStorage.Service.Test.download(variant.key, [])
+    end
+
+    test "does not leak a variant across tenants", %{tenant1: tenant1, tenant2: tenant2} do
+      post1 =
+        TenantPost
+        |> Ash.Changeset.for_create(:create, %{title: "t1"}, tenant: tenant1)
+        |> Ash.create!()
+
+      {:ok, _attached} =
+        Operations.attach(post1, :cover_image, "tenant one",
+          filename: "t1.txt",
+          content_type: "text/plain",
+          tenant: tenant1
+        )
+
+      post1 = Ash.load!(post1, [:cover_image_upcased_url], tenant: tenant1)
+      assert is_binary(post1.cover_image_upcased_url)
+
+      # A different tenant with no attachment sees no variant.
+      post2 =
+        TenantPost
+        |> Ash.Changeset.for_create(:create, %{title: "t2"}, tenant: tenant2)
+        |> Ash.create!()
+
+      post2 = Ash.load!(post2, [:cover_image_upcased_url], tenant: tenant2)
+      assert is_nil(post2.cover_image_upcased_url)
+    end
+  end
+
+  describe "dependent purge with tenant" do
+    test "destroying a tenant record purges its attachment, blob, and file",
+         %{tenant1: tenant1} do
+      post =
+        TenantPost
+        |> Ash.Changeset.for_create(:create, %{title: "purge"}, tenant: tenant1)
+        |> Ash.create!()
+
+      {:ok, %{blob: blob}} =
+        Operations.attach(post, :cover_image, "image data",
+          filename: "photo.jpg",
+          tenant: tenant1
+        )
+
+      assert AshStorage.Service.Test.exists?(blob.key)
+
+      # has_one_attached defaults to dependent: :purge. The destroy runs the
+      # dependent-purge change, which destroys the attachment + blob and deletes
+      # the file. Without threading the tenant into those nested destroys the
+      # operation fails for :context resources.
+      Ash.destroy!(post, tenant: tenant1)
+
+      refute AshStorage.Service.Test.exists?(blob.key)
+      assert [] = TenantAttachment |> Ash.Query.set_tenant(tenant1) |> Ash.read!()
     end
   end
 end
